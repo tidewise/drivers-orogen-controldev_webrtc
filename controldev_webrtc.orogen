@@ -1,0 +1,22 @@
+# frozen_string_literal: true
+
+name "controldev_webrtc"
+
+using_library "controldev"
+using_library "base-logging"
+using_library "jsoncpp", typekit: false
+
+import_types_from "base"
+import_types_from "controldev/RawCommand.hpp"
+import_types_from "controldev_webrtcTypes.hpp"
+
+task_context "Task" do
+    property "port", "uint16_t", 58_000
+    property "axis_map", "/std/vector</controldev_webrtc/Mapping>"
+    property "button_map", "/std/vector</controldev_webrtc/ButtonMapping>"
+
+    output_port "raw_command", "controldev/RawCommand"
+    output_port "statistics", "controldev_webrtc/Statistics"
+
+    periodic 0.1
+end
