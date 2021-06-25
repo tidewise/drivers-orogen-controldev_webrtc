@@ -72,30 +72,32 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             LOG_WARN_S << "Received message from inactive connection" << std::endl;
             return;
         }
-        if (task->parseIncomingMessage(data)) {
-            std::string type;
-            if (task->getTypeFromMessage(type)) {
-                switch (type) {
-                    case "offer":
-                        onOffer(socket);
-                        break;
-                    case "candidate":
-                        onCandidate(socket);
-                        break;
-                    default:
-                        msg["error"] = "unknown type";
-                        socket->send(fast.write(msg));
-                        break;
-                }
-                return;
-            }
+
+        if (!task->parseIncomingMessage(data)) {
+            msg["error"] = "parsing failed";
+            socket->send(fast.write(msg));
+            return;
+        }
+
+        std::string type;
+        if (!task->getTypeFromMessage(type)) {
             msg["error"] = "type field missing";
             socket->send(fast.write(msg));
             return;
         }
-        msg["error"] = "parsing failed";
-        socket->send(fast.write(msg));
-        return;
+
+        switch (type) {
+            case "offer":
+                onOffer(socket);
+                break;
+            case "candidate":
+                onCandidate(socket);
+                break;
+            default:
+                msg["error"] = "unknown type";
+                socket->send(fast.write(msg));
+                break;
+        }
     }
 
     void onDisconnect(WebSocket *socket) override {
@@ -111,7 +113,11 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     void onOffer(WebSocket *socket) {
         Json::Value msg;
 
-        if (task->m_pc && last_offer_successful) {
+        /** Usually we would like to free the memory associated with new_pc from last offer before getting a new offer,
+         * but if the last offer was succesful, i.e. new_pc reached the connected state, then new_pc would
+         * be pointing to the same memory location as task->m_pc, so we just set new_pc to nullptr in this case.
+         */
+        if (last_offer_successful) {
             new_pc = nullptr;
             last_offer_successful = false;
         }
@@ -120,108 +126,100 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         }
 
         std::string id;
-        if (task->getIdFromMessage(id)) {
+        if (!task->getIdFromMessage(id)) {
+            msg["type"] = "offer";
+            msg["error"] = "id field missing";
+            socket->send(fast.write(msg));
+            return;
+        }
 
-            std::string otherId;
-            if (task->getOtherIdFromMessage(otherId)) {
-
-                if (otherId == COMPONENT_ID) {
-
-                    std::string offer;
-                    if (task->getOfferFromMessage(offer)) {
-
-                        createPeerConnection(socket, id);
-
-                        try
-                        {
-                            new_pc->setRemoteDescription(rtc::Description(offer))
-                        }
-                        catch(const std::exception& e)
-                        {
-                            delete new_pc;
-                            LOG_ERROR_S << e.what();
-                            LOG_ERROR_S << std::endl;
-                            msg["type"] = "offer";
-                            msg["error"] = e.what();
-                            socket->send(fast.write(msg));
-                        }
-                        return;
-                    }
-
-                    msg["type"] = "offer";
-                    msg["error"] = "sdp field missing";
-                    socket->send(fast.write(msg));
-                    return;
-                }
-
-                msg["type"] = "offer";
-                msg["error"] = "wrong target id";
-                socket->send(fast.write(msg));
-                return;
-            }
-
+        std::string otherId;
+        if (!task->getOtherIdFromMessage(otherId)) {
             msg["type"] = "offer";
             msg["error"] = "other_id field missing";
             socket->send(fast.write(msg));
             return;
         }
 
-        msg["type"] = "offer";
-        msg["error"] = "id field missing";
-        socket->send(fast.write(msg));
+        if (otherId != COMPONENT_ID) {
+            msg["type"] = "offer";
+            msg["error"] = "wrong target id";
+            socket->send(fast.write(msg));
+            return;
+        }
+
+        std::string offer;
+        if (!task->getOfferFromMessage(offer)) {
+            msg["type"] = "offer";
+            msg["error"] = "sdp field missing";
+            socket->send(fast.write(msg));
+            return;
+        }
+
+        createPeerConnection(socket, id);
+
+        try
+        {
+            new_pc->setRemoteDescription(rtc::Description(offer))
+        }
+        catch(const std::exception& e)
+        {
+            delete new_pc;
+            LOG_ERROR_S << e.what();
+            LOG_ERROR_S << std::endl;
+            msg["type"] = "offer";
+            msg["error"] = e.what();
+            socket->send(fast.write(msg));
+        }
     }
 
     void onCandidate(WebSocket *socket) {
         Json::Value msg;
 
-        if (new_pc) {
+        if (!new_pc) {
+            msg["type"] = "candidate";
+            msg["error"] = "must send offer before candidates";
+            socket->send(fast.write(msg));
+            return;
+        }
 
-            std::string id;
-            if (task->getIdFromMessage(id)) {
-
-                std::string otherId;
-                if (task->getOtherIdFromMessage(otherId)) {
-
-                    if (otherId == COMPONENT_ID) {
-
-                        std::string candidate;
-                        if (task->getCandidateFromMessage(candidate)) {
-
-                            new_pc->addRemoteCandidate(rtc::Candidate(candidate));
-                            return;
-                        }
-
-                        msg["type"] = "candidate";
-                        msg["error"] = "candidate field missing";
-                        socket->send(fast.write(msg));
-                        return;
-                    }
-
-                    msg["type"] = "cadidate";
-                    msg["error"] = "wrong target id";
-                    socket->send(fast.write(msg));
-                    return;
-                }
-
-                msg["type"] = "candidate";
-                msg["error"] = "other_id field missing";
-                socket->send(fast.write(msg));
-                return;
-            }
-
+        std::string id;
+        if (!task->getIdFromMessage(id)) {
             msg["type"] = "candidate";
             msg["error"] = "id field missing";
             socket->send(fast.write(msg));
             return;
         }
-        msg["type"] = "candidate";
-        msg["error"] = "must send offer before candidates";
-        socket->send(fast.write(msg));
+
+        std::string otherId;
+        if (!task->getOtherIdFromMessage(otherId)) {
+            msg["type"] = "candidate";
+            msg["error"] = "other_id field missing";
+            socket->send(fast.write(msg));
+            return;
+        }
+
+        if (otherId != COMPONENT_ID) {
+            msg["type"] = "cadidate";
+            msg["error"] = "wrong target id";
+            socket->send(fast.write(msg));
+            return;
+        }
+
+        std::string candidate;
+        if (!task->getCandidateFromMessage(candidate)) {
+            msg["type"] = "candidate";
+            msg["error"] = "candidate field missing";
+            socket->send(fast.write(msg));
+            return;
+        }
+
+        new_pc->addRemoteCandidate(rtc::Candidate(candidate));
     }
 
     void createPeerConnection(WebSocket *socket, string id) {
         rtc::Configuration config;
-        config.iceServers.emplace_back("mystunserver.org:3478"); // change server name
+        config.iceServers.emplace_back("mystunserver.org:3478");
 
         new_pc = new rtc::PeerConnection(config);
 
