@@ -141,7 +141,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             return;
         }
 
-        if (otherId != COMPONENT_ID) {
+        if (otherId != _component_id.get()) {
             msg["type"] = "offer";
             msg["error"] = "wrong target id";
             socket->send(fast.write(msg));
@@ -199,7 +199,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             return;
         }
 
-        if (otherId != COMPONENT_ID) {
+        if (otherId != _component_id.get()) {
             msg["type"] = "cadidate";
             msg["error"] = "wrong target id";
             socket->send(fast.write(msg));
@@ -219,7 +219,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
     void createPeerConnection(WebSocket *socket, string id) {
         rtc::Configuration config;
-        config.iceServers.emplace_back("mystunserver.org:3478");
+        config.iceServers.emplace_back(_ice_server.get());
 
         new_pc = new rtc::PeerConnection(config);
 
@@ -246,7 +246,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         new_pc->onLocalDescription([socket, id](rtc::Description sdp) {
             Json::Value answer_msg;
             answer_msg["type"] = "answer";
-            answer_msg["id"] = COMPONENT_ID;
+            answer_msg["id"] = _component_id.get();
             answer_msg["other_id"] = id;
             answer_msg["sdp"] = string(sdp);
             socket.connection->send(fast.write(answer_msg));
@@ -256,7 +256,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         new_pc->onLocalCandidate([socket, id](rtc::Candidate candidate) {
             Json::Value candidate_msg;
             candidate_msg["type"] = "candidate";
-            candidate_msg["id"] = COMPONENT_ID;
+            candidate_msg["id"] = _component_id.get();
             candidate_msg["other_id"] = id;
             candidate_msg["candidate"] = candidate.candidate();
             socket.connection->send(fast.write(candidate_msg));
@@ -265,10 +265,10 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         new_pc->onDataChannel([&new_dc](std::shared_ptr<rtc::DataChannel> incoming) {
             new_dc = incoming;
             new_dc->onOpen([]() {
-                new_dc->send("Hello from " + COMPONENT_ID );
+                new_dc->send("Hello from " + _component_id.get() );
             });
 
-            new_dc->onClosed([]() { cout << "DataChannel from " << COMPONENT_ID << " closed" << endl; });
+            new_dc->onClosed([]() { cout << "DataChannel from " << _component_id.get() << " closed" << endl; });
 
             new_dc->onMessage([](variant<binary, string> data) {
                 Json::Value msg;

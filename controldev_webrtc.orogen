@@ -14,6 +14,8 @@ task_context "Task" do
     property "port", "uint16_t", 58_000
     property "axis_map", "/std/vector</controldev_webrtc/Mapping>"
     property "button_map", "/std/vector</controldev_webrtc/ButtonMapping>"
+    property "component_id", "uint16_t", 1
+    property "ice_server", "std/string"
 
     output_port "raw_command", "controldev/RawCommand"
     output_port "statistics", "controldev_webrtc/Statistics"
