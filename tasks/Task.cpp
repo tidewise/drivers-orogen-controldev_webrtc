@@ -38,7 +38,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     Task *task = nullptr;
     Json::FastWriter fast;
     Statistics statistic;
-    std::shared_ptr<rtc::DataChannel> new_dc(nullptr);
+    std::shared_ptr<rtc::DataChannel> tmp_dc(nullptr);
     rtc::PeerConnection *tmp_pc = nullptr;
 
     void handleNewConnection(Client newer, Client other) {
@@ -66,13 +66,13 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     }
 
     void onData(WebSocket *socket, const char *data) override {
-        Json::Value msg;
         if (socket != pending.connection) {
             LOG_WARN_S << "Received message from inactive connection" << std::endl;
             return;
         }
 
         if (!task->parseIncomingMessage(data)) {
+            Json::Value msg;
             msg["error"] = "parsing failed";
             socket->send(fast.write(msg));
             return;
@@ -80,6 +80,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         std::string type;
         if (!task->getTypeFromMessage(type)) {
+            Json::Value msg;
             msg["error"] = "type field missing";
             socket->send(fast.write(msg));
             return;
@@ -93,6 +94,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
                 onCandidate(socket);
                 break;
             default:
+                Json::Value msg;
                 msg["error"] = "unknown type";
                 socket->send(fast.write(msg));
                 break;
@@ -112,10 +114,9 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     void onOffer(WebSocket *socket) {
         delete tmp_pc;
 
-        Json::Value msg;
-
         std::string id;
         if (!task->getIdFromMessage(id)) {
+            Json::Value msg;
             msg["type"] = "offer";
             msg["error"] = "id field missing";
             socket->send(fast.write(msg));
@@ -124,6 +125,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         std::string otherId;
         if (!task->getOtherIdFromMessage(otherId)) {
+            Json::Value msg;
             msg["type"] = "offer";
             msg["error"] = "other_id field missing";
             socket->send(fast.write(msg));
@@ -131,6 +133,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         }
 
         if (otherId != _component_id.get()) {
+            Json::Value msg;
             msg["type"] = "offer";
             msg["error"] = "wrong target id";
             socket->send(fast.write(msg));
@@ -139,6 +142,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         std::string offer;
         if (!task->getOfferFromMessage(offer)) {
+            Json::Value msg;
             msg["type"] = "offer";
             msg["error"] = "sdp field missing";
             socket->send(fast.write(msg));
@@ -156,6 +160,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             delete tmp_pc;
             LOG_ERROR_S << e.what();
             LOG_ERROR_S << std::endl;
+            Json::Value msg;
             msg["type"] = "offer";
             msg["error"] = e.what();
             socket->send(fast.write(msg));
@@ -163,9 +168,8 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     }
 
     void onCandidate(WebSocket *socket) {
-        Json::Value msg;
-
         if (!tmp_pc) {
+            Json::Value msg;
             msg["type"] = "candidate";
             msg["error"] = "must send offer before candidates";
             socket->send(fast.write(msg));
@@ -174,6 +178,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         std::string id;
         if (!task->getIdFromMessage(id)) {
+            Json::Value msg;
             msg["type"] = "candidate";
             msg["error"] = "id field missing";
             socket->send(fast.write(msg));
@@ -182,6 +187,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         std::string otherId;
         if (!task->getOtherIdFromMessage(otherId)) {
+            Json::Value msg;
             msg["type"] = "candidate";
             msg["error"] = "other_id field missing";
             socket->send(fast.write(msg));
@@ -189,6 +195,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         }
 
         if (otherId != _component_id.get()) {
+            Json::Value msg;
             msg["type"] = "cadidate";
             msg["error"] = "wrong target id";
             socket->send(fast.write(msg));
@@ -197,6 +204,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         std::string candidate;
         if (!task->getCandidateFromMessage(candidate)) {
+            Json::Value msg;
             msg["type"] = "candidate";
             msg["error"] = "candidate field missing";
             socket->send(fast.write(msg));
@@ -212,7 +220,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         tmp_pc = new rtc::PeerConnection(config);
 
-        tmp_pc->onStateChange([&task, tmp_pc, new_dc](PeerConnection::State state) {
+        tmp_pc->onStateChange([&task, tmp_pc, tmp_dc](PeerConnection::State state) {
             if (state == PeerConnection::State::Connected) {
                 if (task->m_pc) {
                     delete task->m_pc;
@@ -221,13 +229,13 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
                     delete task->m_dc;
                 }
                 task->m_pc = tmp_pc;
-                task->m_dc = new_dc;
+                task->m_dc = tmp_dc;
 
                 handleNewConnection(pending, controlling);
                 controlling = pending();
                 pending = Client();
                 tmp_pc = nullptr
-                new_dc = nullptr;
+                tmp_dc = nullptr;
             }
         });
 
@@ -251,15 +259,15 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             socket.connection->send(fast.write(candidate_msg));
         });
 
-        tmp_pc->onDataChannel([&new_dc](std::shared_ptr<rtc::DataChannel> incoming) {
-            new_dc = incoming;
-            new_dc->onOpen([]() {
-                new_dc->send("Hello from " + _component_id.get() );
+        tmp_pc->onDataChannel([&tmp_dc](std::shared_ptr<rtc::DataChannel> incoming) {
+            tmp_dc = incoming;
+            tmp_dc->onOpen([]() {
+                tmp_dc->send("Hello from " + _component_id.get() );
             });
 
-            new_dc->onClosed([]() { cout << "DataChannel from " << _component_id.get() << " closed" << endl; });
+            tmp_dc->onClosed([]() { cout << "DataChannel from " << _component_id.get() << " closed" << endl; });
 
-            new_dc->onMessage([](variant<binary, string> data) {
+            tmp_dc->onMessage([](variant<binary, string> data) {
                 Json::Value msg;
 
                 if (holds_alternative<string>(data)) {
@@ -275,11 +283,11 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
                     statistic.errors = task->errors;
                     statistic.time = base::Time::now();
                     task->_statistics.write(statistic);
-                    new_dc->send(fast.write(msg));
+                    tmp_dc->send(fast.write(msg));
                 }
                 else{
                     msg["error"] = "message must be of string type";
-                    new_dc->send(fast.write(msg));
+                    tmp_dc->send(fast.write(msg));
                 }
             });
         });
