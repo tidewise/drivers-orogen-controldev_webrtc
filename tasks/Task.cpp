@@ -39,8 +39,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     Json::FastWriter fast;
     Statistics statistic;
     std::shared_ptr<rtc::DataChannel> new_dc(nullptr);
-    rtc::PeerConnection *new_pc = nullptr;
-    bool last_offer_successful = false;
+    rtc::PeerConnection *tmp_pc = nullptr;
 
     void handleNewConnection(Client newer, Client other) {
         Json::Value feedback;
@@ -111,19 +110,9 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     }
 
     void onOffer(WebSocket *socket) {
-        Json::Value msg;
+        delete tmp_pc;
 
-        /** Usually we would like to free the memory associated with new_pc from last offer before getting a new offer,
-         * but if the last offer was succesful, i.e. new_pc reached the connected state, then new_pc would
-         * be pointing to the same memory location as task->m_pc, so we just set new_pc to nullptr in this case.
-         */
-        if (last_offer_successful) {
-            new_pc = nullptr;
-            last_offer_successful = false;
-        }
-        else {
-            delete new_pc;
-        }
+        Json::Value msg;
 
         std::string id;
         if (!task->getIdFromMessage(id)) {
@@ -160,11 +149,11 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
 
         try
         {
-            new_pc->setRemoteDescription(rtc::Description(offer))
+            tmp_pc->setRemoteDescription(rtc::Description(offer))
         }
         catch(const std::exception& e)
         {
-            delete new_pc;
+            delete tmp_pc;
             LOG_ERROR_S << e.what();
             LOG_ERROR_S << std::endl;
             msg["type"] = "offer";
@@ -176,7 +165,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
     void onCandidate(WebSocket *socket) {
         Json::Value msg;
 
-        if (!new_pc) {
+        if (!tmp_pc) {
             msg["type"] = "candidate";
             msg["error"] = "must send offer before candidates";
             socket->send(fast.write(msg));
@@ -214,16 +203,16 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             return;
         }
 
-        new_pc->addRemoteCandidate(rtc::Candidate(candidate));
+        tmp_pc->addRemoteCandidate(rtc::Candidate(candidate));
     }
 
     void createPeerConnection(WebSocket *socket, string id) {
         rtc::Configuration config;
         config.iceServers.emplace_back(_ice_server.get());
 
-        new_pc = new rtc::PeerConnection(config);
+        tmp_pc = new rtc::PeerConnection(config);
 
-        new_pc->onStateChange([&task, new_dc](PeerConnection::State state) {
+        tmp_pc->onStateChange([&task, tmp_pc, new_dc](PeerConnection::State state) {
             if (state == PeerConnection::State::Connected) {
                 if (task->m_pc) {
                     delete task->m_pc;
@@ -231,19 +220,19 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
                 if (task->m_dc) {
                     delete task->m_dc;
                 }
-                task->m_pc = this;
+                task->m_pc = tmp_pc;
                 task->m_dc = new_dc;
 
                 handleNewConnection(pending, controlling);
                 controlling = pending();
                 pending = Client();
+                tmp_pc = nullptr
                 new_dc = nullptr;
-                last_offer_successful = true;
             }
         });
 
         // Send local description to the remote peer
-        new_pc->onLocalDescription([socket, id](rtc::Description sdp) {
+        tmp_pc->onLocalDescription([socket, id](rtc::Description sdp) {
             Json::Value answer_msg;
             answer_msg["type"] = "answer";
             answer_msg["id"] = _component_id.get();
@@ -253,7 +242,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
         });
 
         // Send candidate to the remote peer
-        new_pc->onLocalCandidate([socket, id](rtc::Candidate candidate) {
+        tmp_pc->onLocalCandidate([socket, id](rtc::Candidate candidate) {
             Json::Value candidate_msg;
             candidate_msg["type"] = "candidate";
             candidate_msg["id"] = _component_id.get();
@@ -262,7 +251,7 @@ struct controldev_webrtc::JoystickHandler : WebSocket::Handler {
             socket.connection->send(fast.write(candidate_msg));
         });
 
-        new_pc->onDataChannel([&new_dc](std::shared_ptr<rtc::DataChannel> incoming) {
+        tmp_pc->onDataChannel([&new_dc](std::shared_ptr<rtc::DataChannel> incoming) {
             new_dc = incoming;
             new_dc->onOpen([]() {
                 new_dc->send("Hello from " + _component_id.get() );
