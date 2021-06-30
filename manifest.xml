@@ -1,0 +1,16 @@
+<package>
+  <description brief="A package to generate a `controldev/RawCommand` output port through joystick messages received from WebRTC data channel">
+  The component receives a JSON from a WebRTC peer, with `axis` and `buttons` attributes as in the Standard Gamepad from JS Gamepad library but with just the values at those fields. Also, the received JSON has a boolean `status` field with true indicating that it should write the command to the port. Note, the task just writes at `raw_command_port` when receives a message.
+
+Finally, for each received message the task sends a message back to its peer with a JSON containing just a `result` field. That field receives true when the received message has all the attributes and was decoded translated correctly to `controldev/RawCommand` type being able to write at the port, and receives false otherwise. Note that the task just keeps connection with one peer, the lastest connected one.
+  </description>
+  <author>Mateus Pedrosa/mateus.pedrosa@tidewise.io</author>
+  <license></license>
+  <url>http://</url>
+  <logo>http://</logo>
+  <depend package="drivers/controldev"/>
+  <depend package="tools/seasocks"/>
+  <depend package="tools/libdatachannel"/>
+  <depend package="base/logging"/>
+  <depend package="jsoncpp"/>
+</package>
