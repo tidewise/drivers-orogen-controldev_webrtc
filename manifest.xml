@@ -10,6 +10,7 @@ Finally, for each received message the task sends a message back to its peer wit
   <logo>http://</logo>
   <depend package="drivers/controldev"/>
   <depend package="tools/seasocks"/>
+  <depend package="tools/libdatachannel"/>
   <depend package="base/logging"/>
   <depend package="jsoncpp"/>
 </package>

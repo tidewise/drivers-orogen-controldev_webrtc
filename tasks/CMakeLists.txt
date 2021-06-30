@@ -1,8 +1,12 @@
 # Generated from orogen/lib/orogen/templates/tasks/CMakeLists.txt
 
-find_package(Seasocks REQUIRED)
-
 include(controldev_webrtcTaskLib)
+
+find_package(Seasocks REQUIRED)
+find_package(libdatachannel REQUIRED)
+find_package(Threads REQUIRED)
+include_directories(LibDatachannel::datachannel)
+
 ADD_LIBRARY(${CONTROLDEV_WEBRTC_TASKLIB_NAME} SHARED
     ${CONTROLDEV_WEBRTC_TASKLIB_SOURCES})
 add_dependencies(${CONTROLDEV_WEBRTC_TASKLIB_NAME}
@@ -13,6 +17,7 @@ TARGET_LINK_LIBRARIES(${CONTROLDEV_WEBRTC_TASKLIB_NAME}
     ${OrocosRTT_LIBRARIES}
     ${QT_LIBRARIES}
     Seasocks::seasocks
+    LibDatachannel::datachannel
     ${CONTROLDEV_WEBRTC_TASKLIB_DEPENDENT_LIBRARIES})
 SET_TARGET_PROPERTIES(${CONTROLDEV_WEBRTC_TASKLIB_NAME}
     PROPERTIES LINK_INTERFACE_LIBRARIES "${CONTROLDEV_WEBRTC_TASKLIB_INTERFACE_LIBRARIES}")
